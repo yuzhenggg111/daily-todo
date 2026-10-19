@@ -595,6 +595,35 @@
 
   .carry-banner button:hover { background: var(--accent-strong); }
 
+  .cloud-hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 4px 16px;
+    padding: 10px 12px 10px 14px;
+    border: 1px solid var(--accent-soft);
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .cloud-hint button {
+    flex: none;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fffaf5;
+    font-size: 11.5px;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .cloud-hint button:hover { background: var(--accent-strong); }
+
   .list-toolbar {
     display: flex;
     align-items: center;
@@ -1314,6 +1343,7 @@
     .headline { font-size: 17.5px; }
     .bars { gap: 5px; }
     .bar-area { height: 82px; }
+    .cloud-hint { flex-wrap: wrap; margin: 0 2px 14px; }
     .modal { padding: 12px; }
     .modal-card { padding: 18px; border-radius: 16px; max-height: calc(100vh - 24px); }
     .field input, .code-row input { font-size: 16px; }
@@ -1390,6 +1420,11 @@
       <input type="date" id="date-jump" class="date-jump" tabindex="-1" aria-hidden="true">
     </div>
   </section>
+
+  <div class="cloud-hint" id="cloud-hint" hidden>
+    <span>这台设备还没连接云同步。请用手机浏览器打开电脑复制的“手机连接链接”，或在云同步里填入相同同步码。</span>
+    <button id="cloud-hint-btn" type="button">去设置</button>
+  </div>
 
   <div class="grid">
     <main class="card tasks-card">
@@ -1667,12 +1702,12 @@
   var today = todayKey();
   var state = { date: today, filter: 'all', editingId: null };
   var cloud = loadCloudConfig();
-  var cloudFromHash = false;
-  var hashCloud = readCloudFromHash();
-  if (hashCloud) {
-    cloud = hashCloud;
+  var cloudFromLink = false;
+  var linkCloud = readCloudFromLink();
+  if (linkCloud) {
+    cloud = linkCloud;
     saveCloudConfig(cloud);
-    cloudFromHash = true;
+    cloudFromLink = true;
   }
   var sync = {
     mode: cloud ? 'cloud' : 'lan',
@@ -1724,13 +1759,24 @@
     } catch (err) {}
   }
 
-  function readCloudFromHash() {
-    if (!location.hash || location.hash.indexOf('#cloud=') !== 0) return null;
+  function readCloudFromLink() {
+    var raw = null;
+    if (location.hash && location.hash.indexOf('#cloud=') === 0) {
+      raw = decodeURIComponent(location.hash.slice(7));
+    } else {
+      try {
+        var params = new URLSearchParams(location.search);
+        if (params.has('cloud')) raw = params.get('cloud');
+      } catch (err) {}
+    }
+
+    if (!raw) return null;
     try {
-      var json = decodeURIComponent(location.hash.slice(7));
-      var config = normalizeCloudConfig(JSON.parse(atob(json)));
+      var config = normalizeCloudConfig(JSON.parse(atob(raw)));
       if (config) {
-        try { history.replaceState(null, '', location.pathname + location.search); } catch (err) {}
+        if (location.hash) {
+          try { history.replaceState(null, '', location.pathname + location.search); } catch (err) {}
+        }
         return config;
       }
     } catch (err) {}
@@ -1780,7 +1826,8 @@
     try {
       var payload = btoa(JSON.stringify(config));
       var pageUrl = location.origin + location.pathname;
-      return pageUrl + '#cloud=' + encodeURIComponent(payload);
+      var separator = pageUrl.indexOf('?') >= 0 ? '&' : '?';
+      return pageUrl + separator + 'cloud=' + encodeURIComponent(payload);
     } catch (err) {
       return null;
     }
@@ -2765,12 +2812,19 @@
     }
   }
 
+  function updateCloudHint() {
+    var hint = el('cloud-hint');
+    if (!hint) return;
+    hint.hidden = !!cloud || location.protocol === 'file:';
+  }
+
   function renderAll() {
     renderDate();
     renderTasks();
     renderProgress();
     renderSummary();
     updateCarryBanner();
+    updateCloudHint();
   }
 
   function addTask() {
@@ -3064,6 +3118,7 @@
     });
 
     el('cloud-btn').addEventListener('click', openCloudModal);
+    el('cloud-hint-btn').addEventListener('click', openCloudModal);
     el('cloud-close').addEventListener('click', closeCloudModal);
     el('cloud-cancel').addEventListener('click', closeCloudModal);
     el('cloud-backdrop').addEventListener('click', closeCloudModal);
@@ -3134,7 +3189,7 @@
     bindEvents();
     renderAll();
     startSync();
-    if (cloudFromHash) showToast('已导入云同步配置');
+    if (cloudFromLink) showToast('已导入云同步配置');
     window.setInterval(checkDayRollover, 30000);
   }
 
